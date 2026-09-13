@@ -8,6 +8,7 @@ pathogenic vs benign; direction is a literal reading of what the source asserts.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -18,6 +19,7 @@ log = logging.getLogger(__name__)
 
 TIMEOUT = 25.0
 UA = {"User-Agent": "VariantCourt/0.2 (research prototype)"}
+EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
 # Genes where loss of function is an established disease mechanism (ClinGen dosage
 # haploinsufficiency = 3, curated subset). Research shortcut, not a clinical resource.
@@ -28,6 +30,42 @@ LOF_MECHANISM_GENES = {
     "PKD1", "PKD2", "SCN1A", "MECP2", "KMT2D", "ARID1B", "PTPN11",
 }
 LOF_CONSEQUENCES = {"frameshift_variant", "stop_gained", "splice_acceptor_variant", "splice_donor_variant", "start_lost"}
+
+
+# ---------------------------------------------------------------- name resolution
+_CLINVAR_TITLE = re.compile(r"^(N[MR]_\d+\.\d+)\(([A-Za-z0-9\-]+)\):(c\.[^ ]+)")
+
+
+def resolve_protein_name(gene: str, protein_change: str) -> tuple[str, str] | None:
+    """'BRAF' + 'p.Val600Glu' -> ('NM_004333.6', 'c.1799T>A') using ClinVar's own naming.
+
+    ponytail: reuses the ClinVar E-utilities we already call; Ensembl's variant_recoder
+    does the same job but times out regularly on the public endpoint.
+    """
+    term = f'{gene}[gene] AND "{protein_change}"[variant name]'
+    r = httpx.get(
+        f"{EUTILS}/esearch.fcgi",
+        params={"db": "clinvar", "term": term, "retmode": "json", "retmax": 5},
+        headers=UA,
+        timeout=TIMEOUT,
+    )
+    r.raise_for_status()
+    ids = (r.json().get("esearchresult") or {}).get("idlist", [])
+    if not ids:
+        return None
+    r = httpx.get(
+        f"{EUTILS}/esummary.fcgi",
+        params={"db": "clinvar", "id": ",".join(ids), "retmode": "json"},
+        headers=UA,
+        timeout=TIMEOUT,
+    )
+    r.raise_for_status()
+    result = r.json().get("result", {})
+    for uid in result.get("uids", []):
+        m = _CLINVAR_TITLE.match(result[uid].get("title", ""))
+        if m and m.group(2).upper() == gene.upper():
+            return m.group(1), m.group(3)
+    return None
 
 
 # ---------------------------------------------------------------- Ensembl VEP
@@ -266,7 +304,6 @@ def fetch_gnomad(rsid: str, transcript: str | None) -> list[EvidenceItem]:
 
 
 # ---------------------------------------------------------------- ClinVar
-EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 _STARS = {
     "practice guideline": 4,
     "reviewed by expert panel": 3,

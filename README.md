@@ -92,7 +92,10 @@ Evidence Clerk -> Pathogenic Counsel -> Benign Counsel -> TypeSafe Cross-Examine
 | --- | --- |
 | `NM_007294.4:c.68_69delAG` | Pathogenic; overreaching claims rejected in round 1, converged round 2 |
 | `NM_007294.4:c.4837A>G` | Benign (BA1) |
+| `BRAF V600E` | VUS, review flagged; ClinVar germline records conflict |
 | anything else | Insufficient Evidence, flagged for human review |
+
+Accepted input formats: transcript HGVS (`NM_007294.4:c.68_69delAG`), ClinVar style with the gene in parentheses (`NM_004333.6(BRAF):c.1799T>A`), dbSNP ids (`rs80357914`), and clinician shorthand at the protein level (`BRAF V600E`, `CFTR F508del`, `TP53 p.Arg248Trp`), which is resolved to transcript HGVS through ClinVar.
 
 Evidence comes live from Ensembl VEP, gnomAD, ClinVar and Europe PMC (`EVIDENCE_MODE=live`, cached under `.cache/evidence/`, fixture fallback if the anchor source fails). Set `EVIDENCE_MODE=fixtures` for the offline demo bundle.
 

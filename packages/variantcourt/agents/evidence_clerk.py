@@ -118,6 +118,17 @@ class LiveEvidenceClerk:
         from variantcourt.evidence import sources as src
 
         self.last_errors = {}
+        if parsed.gene and parsed.protein_change and not parsed.hgvs:
+            try:
+                found = src.resolve_protein_name(parsed.gene, parsed.protein_change)
+            except Exception as e:  # noqa: BLE001
+                self.last_errors["name resolution"] = str(e)
+                found = None
+            if found is None:
+                log.warning("could not resolve %s %s to a transcript variant", parsed.gene, parsed.protein_change)
+                return None
+            parsed = parsed.model_copy(update={"transcript": found[0], "hgvs": found[1]})
+            log.info("resolved %s -> %s:%s", parsed.input, found[0], found[1])
         try:
             rec = src.fetch_vep(parsed)
         except Exception as e:  # noqa: BLE001

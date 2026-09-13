@@ -25,6 +25,7 @@ const demoCards = [
   { v: 'NM_007294.4:c.68_69delAG', title: 'BRCA1 founder mutation', blurb: 'Well-known disease-causing change.' },
   { v: 'NM_007294.4:c.4837A>G', title: 'BRCA1 common variant', blurb: 'Carried by a third of people.' },
   { v: 'NM_000546.6:c.524G>A', title: 'TP53 hotspot', blurb: 'Real sources disagree; the court abstains.' },
+  { v: 'BRAF V600E', title: 'BRAF V600E (plain name)', blurb: 'Clinician shorthand, resolved to transcript HGVS.' },
 ]
 const cur = computed(() => cs.current.value)
 const state = computed(() => cur.value?.stateAfter ?? cs.evidence.value)

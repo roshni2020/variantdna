@@ -22,6 +22,7 @@ class NormalizedVariant(BaseModel):
     gene: str | None = None
     transcript: str | None = None
     hgvs: str | None = None
+    protein_change: str | None = None  # set when the user gave a protein-level name
     rsid: str | None = None
     assembly: str | None = None
 

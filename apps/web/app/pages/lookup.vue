@@ -27,7 +27,7 @@ const freq = computed(() => {
       <h1 class="font-semibold text-lg">Variant Lookup</h1>
       <p class="text-sm text-gray-600">What a DNA change is, in plain words, and which public sources confirm it. No verdict; that is the courtroom's job.</p>
       <form class="mt-3 flex gap-2" @submit.prevent="look">
-        <input v-model="q" class="vc-mono flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="NM_007294.4:c.68_69delAG or rs80357914" />
+        <input v-model="q" class="vc-mono flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="NM_007294.4:c.68_69delAG, rs80357914, or BRAF V600E" />
         <UButton type="submit" color="primary" :loading="loading">Look up</UButton>
       </form>
       <p v-if="error" class="text-red-600 text-sm mt-2">{{ error }}</p>
