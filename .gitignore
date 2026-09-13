@@ -1,0 +1,14 @@
+.rocketride/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+.mcp.json
+*.db
+node_modules/
+.nuxt/
+.output/
+wandb/
+.cache/
+.agents/

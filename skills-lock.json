@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "weave-integration": {
+      "source": "altryne/weavify-skill",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "32d0cee94ea58b1e86cdeedb0c769b09587163d487ef541432b719729140415b"
+    }
+  }
+}

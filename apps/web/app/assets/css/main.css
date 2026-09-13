@@ -1,0 +1,13 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+html, body { background: #f4f6fb; color: #111827; }
+
+.vc-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 0.9rem; }
+.vc-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.vc-pulse { animation: vcpulse 1.2s ease-in-out infinite; }
+@keyframes vcpulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.35 } }
+.vc-nav a { display: flex; align-items: center; gap: .6rem; padding: .55rem .8rem; border-radius: .6rem; color: #374151; font-size: .9rem; }
+.vc-nav a:hover { background: #eef2ff; }
+.vc-nav a.router-link-active { background: #e0e7ff; color: #1e3a8a; font-weight: 600; }
+.chip { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; }

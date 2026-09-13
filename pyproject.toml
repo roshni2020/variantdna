@@ -1,0 +1,40 @@
+[project]
+name = "variantcourt"
+version = "0.1.0"
+description = "VariantCourt: an AI courtroom for DNA variant interpretation (research prototype, not for clinical use)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "pydantic>=2.9",
+    "python-dotenv>=1.2.3",
+    "sse-starlette>=3.4.11",
+    "uvicorn[standard]>=0.52.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+observability = [
+    "wandb>=0.30.0",
+    "weave>=0.53.9",
+]
+notebook = [
+    "altair>=6.2.2",
+    "marimo>=0.24.2",
+    "pandas>=3.0.5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["packages/variantcourt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["packages"]
+
+[tool.uv]
+package = true
