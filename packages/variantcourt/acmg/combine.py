@@ -77,10 +77,37 @@ def combine(criteria: list[CriterionResult], evidence_count: int) -> str:
     return VUS
 
 
-def evaluate_verdict(state: EvidenceState, max_rounds: int) -> Verdict:
+# Bayesian point system (Tavtigian et al. 2018/2020). PM2 counts as supporting per ClinGen SVI.
+_POINTS = {SUPPORTING: 1, MODERATE: 2, STRONG: 4, VERY_STRONG: 8}
+
+
+def combine_points(criteria: list[CriterionResult], evidence_count: int) -> str:
+    """Sum pathogenic minus benign points; conflicting evidence nets out instead of forcing VUS."""
+    met = [c for c in criteria if c.status not in (NOT_MET, NOT_EVALUATED)]
+    if any(c.status == STAND_ALONE for c in met):
+        return BENIGN
+    score = 0
+    for c in met:
+        pts = 1 if c.code == "PM2" else _POINTS.get(c.status, 0)
+        score += pts if c.code.startswith("P") else -pts
+    if score >= 10:
+        return PATHOGENIC
+    if score >= 6:
+        return LIKELY_PATHOGENIC
+    if score <= -7:
+        return BENIGN
+    if score <= -1:
+        return LIKELY_BENIGN
+    if not met and (evidence_count < 2 or all(c.status == NOT_EVALUATED for c in criteria if c.code in ("PM2", "BA1", "BS1"))):
+        return INSUFFICIENT
+    return VUS
+
+
+def evaluate_verdict(state: EvidenceState, max_rounds: int, scoring: str = "rules") -> Verdict:
+    """scoring: "rules" (Richards 2015 combining rules, default) or "points" (Tavtigian)."""
     criteria = evaluate_all(state)
     unresolved_high = state.unresolved_conflicts("high")
-    classification = combine(criteria, evidence_count=len(usable_evidence(state)))
+    classification = (combine_points if scoring == "points" else combine)(criteria, evidence_count=len(usable_evidence(state)))
 
     if unresolved_high and state.round >= max_rounds and not state.converged:
         classification = NEEDS_REVIEW

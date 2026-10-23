@@ -13,5 +13,5 @@ wandb/
 .cache/
 .agents/
 apps/web/dist/
-bulk_results.csv
+bulk_results*.csv
 typesafe_audit.csv

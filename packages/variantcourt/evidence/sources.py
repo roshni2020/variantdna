@@ -149,6 +149,8 @@ def vep_items(rec: dict[str, Any], variant: NormalizedVariant) -> tuple[list[Evi
             transcript=picked or tx_id,
             metadata={
                 "consequence": consequence,
+                "consequence_terms": tc.get("consequence_terms") or [consequence],
+                "exon": tc.get("exon"),  # "27/27" = last exon
                 "requested_transcript_annotated": (picked or "").split(".")[0] == (tx_id or "").split(".")[0],
                 "impact": tc.get("impact"),
                 "protein_change": protein or None,

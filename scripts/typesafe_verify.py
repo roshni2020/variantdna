@@ -21,13 +21,9 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 from dotenv import load_dotenv
 
+from variantcourt.agents.cross_examiner import AUTO_ACCEPT, RELATION
+
 API = "https://api.typesafe.ai/v1/systemone"
-AUTO_ACCEPT = 0.8  # ponytail: cookbook default, tune on reviewed cases
-RELATION = {
-    "supports": "The evidence states the claim or directly implies that it is true",
-    "contradicts": "The evidence states the opposite of the claim or implies it is false",
-    "says_nothing": "The evidence does not address what the claim asserts, either way",
-}
 VERDICT_CLAIM = {
     "path": "This DNA variant is likely to cause disease (pathogenic).",
     "benign": "This DNA variant is likely harmless (benign).",

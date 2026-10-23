@@ -116,28 +116,3 @@ def jury_user(
         },
         indent=1,
     )
-
-
-TYPESAFE_SYSTEM = (
-    f"You are TypeSafe, the independent Cross-Examiner in VariantCourt. {DISCLAIMER}\n"
-    "Attack BOTH sides. Find: unsupported claims, contradictions, double counting, duplicate use of the same "
-    "evidence, transcript mismatch, variant mismatch, stale evidence, incorrect assumptions, missing prerequisites, "
-    "overconfident claims, and claims not supported by the cited evidence. For each finding emit a Conflict with a "
-    "stable id of the form cf_<type>_<claim ids joined by _>, a conflict_type from that list, a severity, and the "
-    "affected claim ids. List rejected_claim_ids for fatal problems and weakened_claim_ids for non-fatal ones. "
-    "Only reference claim ids and evidence ids that exist."
-)
-
-
-def typesafe_user(state: EvidenceState, pathogenic_claims: list[AgentClaim], benign_claims: list[AgentClaim]) -> str:
-    return json.dumps(
-        {
-            "variant": state.variant.model_dump(),
-            "evidence": [e.model_dump() for e in state.evidence_items],
-            "pathogenic_claims": [c.model_dump() for c in pathogenic_claims],
-            "benign_claims": [c.model_dump() for c in benign_claims],
-            "current_conflicts": [c.model_dump() for c in state.conflicts],
-            "criterion_states": {k: v.model_dump() for k, v in state.criterion_states.items()},
-        },
-        indent=1,
-    )

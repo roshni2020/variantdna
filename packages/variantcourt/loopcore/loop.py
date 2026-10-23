@@ -58,6 +58,7 @@ def _jury_text(d) -> str:
 class CourtroomConfig:
     max_rounds: int = MAX_ROUNDS
     mode: str = "demo"
+    scoring: str = "rules"  # rules | points (see acmg.combine)
 
 
 @dataclass
@@ -189,7 +190,7 @@ class CourtroomRunner:
             if converged:
                 break
 
-        verdict = evaluate_verdict(state, max_rounds=self.config.max_rounds)
+        verdict = evaluate_verdict(state, max_rounds=self.config.max_rounds, scoring=self.config.scoring)
         with self.tracer.agent_turn(state.round, "rule_engine", "Rule engine, deliver the verdict.", "deterministic") as sp:
             met = [f"{c.code} {c.status}" for c in verdict.criteria if c.status not in ("NOT_MET", "NOT_EVALUATED")]
             sp.say(f"{verdict.classification}. Criteria met: {', '.join(met) or 'none'}. Human review: {verdict.requires_human_review}.")

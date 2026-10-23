@@ -54,7 +54,8 @@ the W&B project.
 | --- | --- | --- |
 | `WANDB_API_KEY`, `WANDB_ENTITY`, `WANDB_PROJECT` | Weave traces + W&B runs for ARIA | set |
 | `COREWEAVE_BASE_URL`, `COREWEAVE_API_KEY`, `COREWEAVE_MODEL` | LLM-backed counsel and jury. Default: W&B Inference (CoreWeave-hosted, `https://api.inference.wandb.ai/v1`), which reuses `WANDB_API_KEY` | set |
-| `TYPESAFE_BASE_URL`, `TYPESAFE_API_KEY`, `TYPESAFE_MODEL` | real TypeSafe cross-examiner | needed |
+| `TYPESAFE_API_KEY` (`TYPESAFE_MODEL`, default `jev-latest`) | TypeSafe Jev checks each claim against its cited evidence every round, on top of the deterministic checks | set |
+| `ACMG_SCORING` | `rules` (Richards 2015 combining rules, default) or `points` (Tavtigian Bayesian points, conflicting evidence nets out) | optional |
 | `FALLBACK_BASE_URL`, `FALLBACK_API_KEY`, `FALLBACK_MODEL` | optional open-model fallback | optional |
 | `VARIANTCOURT_MODE` | `demo` (deterministic agents) or `live` (LLM agents, deterministic fallback) | live |
 

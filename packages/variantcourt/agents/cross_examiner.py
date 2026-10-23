@@ -219,22 +219,54 @@ class MockTypeSafeProvider:
         )
 
 
-class TypeSafeAPIProvider:
-    """Real TypeSafe adapter.
+# TypeSafe citation-check pattern: one Choice per claim over the evidence it cites.
+RELATION = {
+    "supports": "The evidence states the claim or directly implies that it is true",
+    "contradicts": "The evidence states the opposite of the claim or implies it is false",
+    "says_nothing": "The evidence does not address what the claim asserts, either way",
+}
+AUTO_ACCEPT = 0.8  # ponytail: TypeSafe cookbook default; below it Jev's answer is ignored, tune on audited cases
 
-    Calls the configured TypeSafe endpoint (OpenAI-compatible chat shape by default) with
-    the cross-examination prompt and validates a CrossExamResult. The deterministic checks
-    always run too; findings are merged so the loop never depends on a single call
-    succeeding. If the API fails, the deterministic result stands and the provider name
-    reports the fallback.
+
+class TypeSafeAPIProvider:
+    """Real TypeSafe adapter: Jev (System One, https://api.typesafe.ai/v1/systemone) judges
+    whether each claim's cited evidence supports, contradicts, or says nothing about it.
+
+    The deterministic checks always run too and Jev's confident findings are added on top:
+    contradicted claims are rejected, unaddressed ones weakened. If the API fails, the
+    deterministic result stands and the provider name reports the fallback.
     """
 
-    def __init__(self, model_provider, hybrid: bool = True):
-        self.model_provider = model_provider
-        self.hybrid = hybrid
+    def __init__(self, api_key: str, base_url: str = "https://api.typesafe.ai", model: str = "jev-latest"):
+        self.api_key = api_key
+        self.url = base_url.rstrip("/") + "/v1/systemone"
+        self.model = model
         self.deterministic = MockTypeSafeProvider()
-        self.name = "typesafe"
-        self.last_source = "typesafe"
+        self.name = f"typesafe({model})"
+        self.last_source = self.name
+
+    async def judge(self, state: EvidenceState, claims: list[AgentClaim]) -> dict[str, dict]:
+        import httpx
+
+        evidence = {e.id: f"{e.source}: {e.summary}" for e in state.evidence_items}
+        questions = {
+            c.id: {
+                "type": "choice",
+                "instructions": "Variant `variant`. How does the evidence cited for this claim ("
+                + ", ".join(f"`evidence.{i}`" for i in c.evidence_ids)
+                + f') relate to the claim: "{c.claim}"',
+                "criteria": RELATION,
+            }
+            for c in claims
+        }
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                self.url,
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={"model": self.model, "state": {"variant": state.variant.input, "evidence": evidence}, "questions": questions},
+            )
+        r.raise_for_status()
+        return r.json()["answers"]
 
     async def cross_examine(
         self,
@@ -242,38 +274,47 @@ class TypeSafeAPIProvider:
         pathogenic_claims: list[AgentClaim],
         benign_claims: list[AgentClaim],
     ) -> CrossExamResult:
-        from . import prompts
-
         base = await self.deterministic.cross_examine(state, pathogenic_claims, benign_claims)
+        known = state.evidence_by_id()
+        # Claims citing missing evidence are already rejected; Jev has nothing to read for them.
+        claims = [c for c in pathogenic_claims + benign_claims if c.evidence_ids and all(e in known for e in c.evidence_ids)]
+        if not claims:
+            return base.model_copy(update={"provider": self.name})
         try:
-            llm = await self.model_provider.generate(
-                prompts.TYPESAFE_SYSTEM,
-                prompts.typesafe_user(state, pathogenic_claims, benign_claims),
-                CrossExamResult,
-            )
+            answers = await self.judge(state, claims)
         except Exception as e:  # noqa: BLE001
             self.last_source = f"typesafe fallback(deterministic): {e}"
             return base.model_copy(update={"provider": "typesafe(deterministic fallback)"})
 
-        self.last_source = "typesafe"
-        claim_ids = {c.id for c in pathogenic_claims + benign_claims}
-        merged_conflicts = list(base.contradictions)
-        seen = {c.id for c in merged_conflicts}
-        for c in llm.contradictions:
-            ids = [i for i in c.affected_claim_ids if i in claim_ids]
-            if not ids or c.id in seen:
+        self.last_source = self.name
+        conflicts = list(base.contradictions)
+        rejected, weakened = set(base.rejected_claim_ids), set(base.weakened_claim_ids)
+        for c in claims:
+            a = answers.get(c.id) or {}
+            conf = a.get("confidence", 0.0)
+            if conf < AUTO_ACCEPT:
                 continue
-            seen.add(c.id)
-            merged_conflicts.append(c.model_copy(update={"affected_claim_ids": ids, "resolved": False}))
-        rejected = set(base.rejected_claim_ids) | {i for i in llm.rejected_claim_ids if i in claim_ids}
-        weakened = (set(base.weakened_claim_ids) | {i for i in llm.weakened_claim_ids if i in claim_ids}) - rejected
-        validated = [i for i in claim_ids if i not in rejected and i not in weakened]
+            if a.get("choice") == "contradicts":
+                rejected.add(c.id)
+                conflicts.append(Conflict(
+                    id=f"cf_typesafe_contradicts_{c.id}", conflict_type="unsupported_claim", severity="medium",
+                    affected_claim_ids=[c.id],
+                    description=f"TypeSafe Jev: the evidence cited by {c.id} contradicts it (confidence {conf:.2f}).",
+                ))
+            elif a.get("choice") == "says_nothing" and c.id not in rejected:
+                weakened.add(c.id)
+                conflicts.append(Conflict(
+                    id=f"cf_typesafe_silent_{c.id}", conflict_type="weak_support", severity="low",
+                    affected_claim_ids=[c.id],
+                    description=f"TypeSafe Jev: the evidence cited by {c.id} does not address it (confidence {conf:.2f}).",
+                ))
+        all_ids = [c.id for c in pathogenic_claims + benign_claims]
         return CrossExamResult(
-            contradictions=merged_conflicts,
+            contradictions=conflicts,
             rejected_claim_ids=sorted(rejected),
-            weakened_claim_ids=sorted(weakened),
-            validated_claim_ids=sorted(validated),
-            open_questions=list(dict.fromkeys(base.open_questions + llm.open_questions)),
-            recommended_checks=list(dict.fromkeys(base.recommended_checks + llm.recommended_checks)),
-            provider="typesafe" if not self.hybrid else "typesafe+deterministic",
+            weakened_claim_ids=sorted(weakened - rejected),
+            validated_claim_ids=[i for i in all_ids if i not in rejected and i not in weakened],
+            open_questions=base.open_questions,
+            recommended_checks=base.recommended_checks,
+            provider=f"{self.name}+deterministic",
         )

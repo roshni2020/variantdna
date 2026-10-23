@@ -18,7 +18,7 @@ from variantcourt.agents import (
 )
 from variantcourt.loopcore import CourtroomConfig, CourtroomRunner, InMemoryTracer
 from variantcourt.loopcore.weave_tracer import WeaveTracer
-from variantcourt.providers import OpenAICompatProvider, Settings, build_model_provider
+from variantcourt.providers import Settings, build_model_provider
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +33,7 @@ def describe(runner: CourtroomRunner) -> dict:
         "typesafe": runner.typesafe.name,
         "jury": getattr(runner.jury, "last_source", None) or runner.jury.__class__.__name__,
         "tracer": "weave" if getattr(runner.tracer, "enabled", False) else "in-memory",
+        "scoring": runner.config.scoring,
     }
 
 
@@ -54,8 +55,7 @@ def build_runner(settings: Settings | None = None, max_rounds: int | None = None
     if not typesafe_enabled:
         typesafe = NoOpTypeSafe()
     elif s.live and s.has_typesafe:
-        ts_model = OpenAICompatProvider("typesafe", s.typesafe_base_url, s.typesafe_api_key or None, s.typesafe_model)
-        typesafe = TypeSafeAPIProvider(ts_model)
+        typesafe = TypeSafeAPIProvider(s.typesafe_api_key, s.typesafe_base_url, s.typesafe_model)
     else:
         typesafe = MockTypeSafeProvider()
 
@@ -66,7 +66,7 @@ def build_runner(settings: Settings | None = None, max_rounds: int | None = None
         typesafe=typesafe,
         jury=jury,
         tracer=tracer,
-        config=CourtroomConfig(max_rounds=rounds, mode="live" if (s.live and model is not None) else "demo"),
+        config=CourtroomConfig(max_rounds=rounds, mode="live" if (s.live and model is not None) else "demo", scoring=s.acmg_scoring),
     )
     if isinstance(tracer, WeaveTracer) and tracer.enabled:
         tracer.wrap_agents(runner)

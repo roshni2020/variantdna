@@ -25,6 +25,7 @@ class Settings:
     mode: str = "demo"  # demo | live
     evidence_mode: str = "live"  # live | fixtures
     max_rounds: int = 3
+    acmg_scoring: str = "rules"  # rules | points
     coreweave_api_key: str = ""
     coreweave_base_url: str = ""
     coreweave_model: str = ""
@@ -45,6 +46,7 @@ class Settings:
             mode=_env("VARIANTCOURT_MODE", "demo").lower() or "demo",
             evidence_mode=_env("EVIDENCE_MODE", "live").lower() or "live",
             max_rounds=int(_env("MAX_ROUNDS", "3") or 3),
+            acmg_scoring="points" if _env("ACMG_SCORING").lower() == "points" else "rules",
             coreweave_api_key=_env("COREWEAVE_API_KEY"),
             coreweave_base_url=_env("COREWEAVE_BASE_URL"),
             coreweave_model=_env("COREWEAVE_MODEL", "meta-llama/Llama-3.3-70B-Instruct"),
@@ -52,8 +54,8 @@ class Settings:
             fallback_base_url=_env("FALLBACK_BASE_URL"),
             fallback_model=_env("FALLBACK_MODEL", "llama3.1"),
             typesafe_api_key=_env("TYPESAFE_API_KEY"),
-            typesafe_base_url=_env("TYPESAFE_BASE_URL"),
-            typesafe_model=_env("TYPESAFE_MODEL", "typesafe-cross-examiner"),
+            typesafe_base_url=_env("TYPESAFE_BASE_URL") or "https://api.typesafe.ai",
+            typesafe_model=_env("TYPESAFE_MODEL") or "jev-latest",
             wandb_api_key=_env("WANDB_API_KEY"),
             wandb_project=_env("WANDB_PROJECT", "variantcourt") or "variantcourt",
             wandb_entity=_env("WANDB_ENTITY"),
@@ -70,7 +72,7 @@ class Settings:
 
     @property
     def has_typesafe(self) -> bool:
-        return bool(self.typesafe_base_url)
+        return bool(self.typesafe_api_key)
 
     @property
     def has_weave(self) -> bool:

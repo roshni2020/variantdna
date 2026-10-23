@@ -45,3 +45,29 @@ def test_gnomad_absence_counts_as_rare(monkeypatch):
     assert items[0].metadata["allele_frequency"] == 0.0
     # rsID misses are not proof of absence (gnomAD may just lack the rsID mapping).
     assert sources.fetch_gnomad("NM_007294.4", rsid="rs1") == []
+
+
+async def test_typesafe_jev_rejects_contradicted_and_falls_back(monkeypatch):
+    from variantcourt.agents.cross_examiner import TypeSafeAPIProvider
+    from variantcourt.domain import AgentClaim, EvidenceItem
+
+    ev = EvidenceItem(id="ev_cv", source="ClinVar", evidence_type="prior_classification", summary="Benign", direction="benign", confidence=0.8)
+    state = EvidenceState(variant=NormalizedVariant(input="X:c.1A>G"), evidence_items=[ev])
+    bad = AgentClaim(id="claim_path_1", agent="pathogenic_counsel", claim="Causes disease", evidence_ids=["ev_cv"], confidence=0.5)
+    good = AgentClaim(id="claim_ben_1", agent="benign_counsel", claim="Harmless", evidence_ids=["ev_cv"], confidence=0.5)
+    ts = TypeSafeAPIProvider("key")
+
+    async def judge(state, claims):
+        return {"claim_path_1": {"choice": "contradicts", "confidence": 0.95}, "claim_ben_1": {"choice": "supports", "confidence": 0.97}}
+
+    monkeypatch.setattr(ts, "judge", judge)
+    res = await ts.cross_examine(state, [bad], [good])
+    assert "claim_path_1" in res.rejected_claim_ids and "claim_ben_1" in res.validated_claim_ids
+    assert any("TypeSafe Jev" in c.description for c in res.contradictions)
+
+    async def down(state, claims):
+        raise RuntimeError("api down")
+
+    monkeypatch.setattr(ts, "judge", down)
+    res = await ts.cross_examine(state, [bad], [good])
+    assert res.provider == "typesafe(deterministic fallback)"

@@ -51,6 +51,15 @@ def evaluate_pvs1(state: EvidenceState) -> CriterionResult:
     if not hits:
         return CriterionResult(code="PVS1", status=NOT_MET, rationale="No loss-of-function consequence annotated.")
     if any(e.metadata.get("lof_mechanism") for e in hits):
+        if any(_in_last_exon(e) for e in hits):
+            # ClinGen PVS1 guidance: a truncation in the last exon is expected to escape
+            # nonsense-mediated decay, so the protein may survive. ponytail: always Moderate;
+            # the full decision tree also weighs the share of protein removed and critical domains.
+            return CriterionResult(
+                code="PVS1", status=MODERATE, evidence_ids=[e.id for e in hits],
+                rationale=f"{hits[0].metadata['consequence']} in the last exon ({hits[0].metadata.get('exon')}); "
+                "likely escapes nonsense-mediated decay, so PVS1 is downgraded to Moderate.",
+            )
         return CriterionResult(
             code="PVS1",
             status=VERY_STRONG,
@@ -63,6 +72,11 @@ def evaluate_pvs1(state: EvidenceState) -> CriterionResult:
         evidence_ids=[e.id for e in hits],
         rationale="Loss-of-function consequence present but disease mechanism not established.",
     )
+
+
+def _in_last_exon(e: EvidenceItem) -> bool:
+    n, _, total = str(e.metadata.get("exon") or "").partition("/")
+    return bool(total) and n == total
 
 
 def evaluate_ps1(state: EvidenceState) -> CriterionResult:
@@ -150,6 +164,22 @@ def evaluate_bp4(state: EvidenceState) -> CriterionResult:
     return CriterionResult(code="BP4", status=NOT_MET, rationale="No benign computational evidence.")
 
 
+def evaluate_bp7(state: EvidenceState) -> CriterionResult:
+    """Synonymous change with no predicted splicing impact. ponytail: splicing impact is read from
+    VEP's splice-region terms only; SpliceAI scores would be the stronger check."""
+    hits = [
+        e for e in usable_evidence(state)
+        if e.evidence_type == "consequence" and e.metadata.get("consequence") == "synonymous_variant"
+        and not any("splice" in t for t in e.metadata.get("consequence_terms") or [])
+    ]
+    if hits:
+        return CriterionResult(
+            code="BP7", status=SUPPORTING, evidence_ids=[e.id for e in hits],
+            rationale="Synonymous change (protein unchanged) outside annotated splice regions.",
+        )
+    return CriterionResult(code="BP7", status=NOT_MET, rationale="Not a synonymous change, or it touches a splice region.")
+
+
 def _prior(state: EvidenceState, direction: str) -> list[EvidenceItem]:
     return [
         e for e in usable_evidence(state)
@@ -192,6 +222,7 @@ CRITERIA: dict[str, Callable[[EvidenceState], CriterionResult]] = {
     "BS1": evaluate_bs1,
     "BS3": evaluate_bs3,
     "BP4": evaluate_bp4,
+    "BP7": evaluate_bp7,
     "PP5": evaluate_pp5,
     "BP6": evaluate_bp6,
 }
