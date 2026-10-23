@@ -71,3 +71,22 @@ async def test_typesafe_jev_rejects_contradicted_and_falls_back(monkeypatch):
     monkeypatch.setattr(ts, "judge", down)
     res = await ts.cross_examine(state, [bad], [good])
     assert res.provider == "typesafe(deterministic fallback)"
+
+
+def test_public_api_get_retries_timeouts_and_overload(monkeypatch):
+    import httpx
+
+    calls = []
+
+    def fake_get(url, **kw):
+        calls.append(url)
+        if len(calls) == 1:
+            raise httpx.ReadTimeout("slow")
+        if len(calls) == 2:
+            return httpx.Response(503, request=httpx.Request("GET", url))
+        return httpx.Response(200, json={"ok": True}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    monkeypatch.setattr(sources.time, "sleep", lambda s: None)
+    assert sources._get("https://rest.ensembl.org/x", {}).json() == {"ok": True}
+    assert len(calls) == 3
