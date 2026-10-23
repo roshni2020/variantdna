@@ -18,9 +18,12 @@ GET  /health
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import json
 import logging
 import os
+import re
 import sys
 import time
 import uuid
@@ -371,5 +374,43 @@ async def research_experiment(body: ExperimentRequest) -> dict[str, Any]:
 
 # Single-container deploy: serve the generated Nuxt app (apps/web/.output/public) if it was built.
 _web = ROOT / "apps" / "web" / ".output" / "public"
+
+
+def _inline_script_hashes(web: Path) -> list[str]:
+    """CSP hashes for Nuxt's inline scripts (config, import map), so 'unsafe-inline' isn't needed."""
+    found = set()
+    for page in web.rglob("*.html") if web.is_dir() else []:
+        for body in re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", page.read_bytes().decode("utf-8"), re.S):
+            found.add("'sha256-" + base64.b64encode(hashlib.sha256(body.encode()).digest()).decode() + "'")
+    return sorted(found)
+
+
+_CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' " + " ".join(_inline_script_hashes(_web)),
+    "style-src 'self' 'unsafe-inline'",  # Vue/Nuxt UI inject styles; scripts are the XSS vector
+    "img-src 'self' data:",
+    "font-src 'self' data:",
+    "connect-src 'self' https://api.iconify.design https://api.simplesvg.com https://api.unisvg.com",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+])
+_SECURITY_HEADERS = {
+    "Content-Security-Policy": _CSP,
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",  # browsers honor it over HTTPS only
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+}
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    for k, v in _SECURITY_HEADERS.items():
+        response.headers.setdefault(k, v)
+    return response
+
+
 if _web.is_dir():
     app.mount("/", StaticFiles(directory=_web, html=True), name="web")

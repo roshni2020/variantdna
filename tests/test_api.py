@@ -93,3 +93,12 @@ async def test_input_limits_and_orphan_cleanup(client):
     api.store.set_status(cid, "running")
     assert api.store.fail_orphans() >= 1
     assert api.store.get_case(cid)["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_security_headers(client):
+    h = (await client.get("/health")).headers
+    assert "frame-ancestors 'none'" in h["content-security-policy"]
+    assert "unsafe-inline" not in h["content-security-policy"].split("script-src")[1].split(";")[0]
+    assert h["strict-transport-security"].startswith("max-age=")
+    assert h["x-content-type-options"] == "nosniff"
