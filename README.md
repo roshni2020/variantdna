@@ -128,3 +128,13 @@ uv run python scripts/bulk_test.py --n 80 --api http://127.0.0.1:8000
 Pulls ClinVar variants with 2+ review stars (half pathogenic, half benign) across eight cancer
 genes, runs them all, and reports throughput, latency, failures, and agreement with ClinVar.
 Per-case rows go to `bulk_results.csv`.
+
+## Audit results with TypeSafe
+
+```
+uv run python scripts/typesafe_verify.py --db variantcourt.db
+```
+
+TypeSafe's Jev model checks every finished case: does each claim's cited evidence support it,
+and does the evidence back the final verdict? Low-confidence answers and disagreements with the
+court are flagged for human review. Needs `TYPESAFE_API_KEY`.
