@@ -24,17 +24,32 @@ UA = {"User-Agent": "VariantCourt/0.2 (research prototype)"}
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
 
+RETRY_STATUS = {429, 502, 503, 504}
+
+
+def _get(url: str, params: dict[str, Any], headers: dict[str, str] = UA, attempts: int = 4) -> httpx.Response:
+    """GET with backoff on timeouts and rate-limit / overload responses. Public APIs (NCBI,
+    Ensembl) throttle and time out under parallel cases; a 500 or 400 is a real answer, not retried."""
+    for attempt in range(attempts):
+        last = attempt == attempts - 1
+        try:
+            r = httpx.get(url, params=params, headers=headers, timeout=TIMEOUT)
+        except httpx.TimeoutException:
+            if last:
+                raise
+        else:
+            if r.status_code not in RETRY_STATUS or last:
+                r.raise_for_status()
+                return r
+        time.sleep(1 + 2 * attempt)
+    raise AssertionError("unreachable")
+
+
 def _eutils(endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
-    """NCBI E-utilities GET with backoff on 429. NCBI allows 3 req/s, or 10 with NCBI_API_KEY."""
+    """NCBI E-utilities. NCBI allows 3 req/s, or 10 with NCBI_API_KEY."""
     if key := os.environ.get("NCBI_API_KEY", "").strip():
         params = {**params, "api_key": key}
-    for attempt in range(4):
-        r = httpx.get(f"{EUTILS}/{endpoint}", params=params, headers=UA, timeout=TIMEOUT)
-        if r.status_code != 429 or attempt == 3:
-            break
-        time.sleep(1 + attempt)
-    r.raise_for_status()
-    return r.json()
+    return _get(f"{EUTILS}/{endpoint}", params).json()
 
 # Genes where loss of function is an established disease mechanism (ClinGen dosage
 # haploinsufficiency = 3, curated subset). Research shortcut, not a clinical resource.
@@ -81,14 +96,11 @@ def fetch_vep(variant: NormalizedVariant) -> dict[str, Any]:
     else:
         raise ValueError("variant lacks transcript/rsid for VEP")
     path = "id" if term.startswith("rs") else "hgvs"
-    r = httpx.get(
+    data = _get(
         f"https://rest.ensembl.org/vep/human/{path}/{term}",
-        params={"content-type": "application/json", "refseq": 1, "hgvs": 1, "sift": "b", "polyphen": "b", "vcf_string": 1},
-        headers={**UA, "Accept": "application/json"},
-        timeout=TIMEOUT,
-    )
-    r.raise_for_status()
-    data = r.json()
+        {"content-type": "application/json", "refseq": 1, "hgvs": 1, "sift": "b", "polyphen": "b", "vcf_string": 1},
+        {**UA, "Accept": "application/json"},
+    ).json()
     if not data:
         raise ValueError("VEP returned no records")
     return data[0]
