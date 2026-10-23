@@ -1,0 +1,10 @@
+.env
+.venv
+.git
+.cache
+wandb
+*.db
+**/node_modules
+**/.nuxt
+**/.output
+.rocketride

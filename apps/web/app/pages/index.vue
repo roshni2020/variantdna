@@ -84,7 +84,7 @@ const explore = [
     <section v-if="cs.status.value === 'idle'" class="vc-card p-6">
       <h1 class="text-2xl font-semibold">Put a DNA mutation on trial.</h1>
       <p class="mt-2 text-gray-600 max-w-3xl">One AI argues the change causes disease, another argues it is harmless, a cross-examiner throws out weak claims, and a jury updates the case file until nothing changes. Then a fixed genetics rulebook delivers the verdict.</p>
-      <div class="mt-4 grid sm:grid-cols-3 gap-3">
+      <div class="mt-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <button v-for="d in demoCards" :key="d.v" type="button" class="text-left rounded-xl border border-gray-200 hover:border-indigo-400 bg-gray-50 p-4 transition" @click="cs.open(d.v)">
           <div class="font-medium">{{ d.title }}</div>
           <div class="vc-mono text-xs text-gray-500 mt-0.5">{{ d.v }}</div>
@@ -95,7 +95,10 @@ const explore = [
     </section>
 
     <template v-else>
-      <p v-if="cs.error.value" class="text-red-600 text-sm">{{ cs.error.value }}</p>
+      <div v-if="cs.error.value" class="vc-card border-red-200 bg-red-50 p-3 text-sm text-red-700 flex items-center gap-3">
+        <span>The case could not finish: {{ cs.error.value }}</span>
+        <UButton v-if="cs.evidence.value?.variant?.input || route.query.variant" size="xs" color="error" variant="outline" class="ml-auto" @click="cs.open(cs.evidence.value?.variant?.input ?? String(route.query.variant))">Retry</UButton>
+      </div>
       <CaseHeader :cs="cs" />
 
       <div class="grid xl:grid-cols-[1fr_330px] gap-4">

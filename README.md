@@ -34,6 +34,16 @@ uv sync --extra notebook
 uv run marimo edit evals/variantcourt_research.py
 ```
 
+### Docker (one container, API + UI on port 8000)
+
+```
+docker build -t variantcourt .
+docker run -p 8000:8000 --env-file .env -v variantcourt-data:/data variantcourt
+```
+
+Open http://localhost:8000. Set `CORS_ORIGINS` and `MAX_CONCURRENT_CASES` for a public deploy
+(see `.env.example`). Cases still running when the server restarts are marked failed on boot.
+
 Open http://localhost:3000, enter `NM_007294.4:c.68_69delAG`, click **Open case**, and watch
 the sides argue live. The **Research Optimizer** tab shows ARIA's recommendation and links to
 the W&B project.

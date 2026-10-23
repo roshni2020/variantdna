@@ -7,6 +7,7 @@ function run() {
 }
 const nav = [
   { to: '/', label: 'Dashboard', icon: '▦' },
+  { to: '/lookup', label: 'Variant Lookup', icon: '⌕' },
   { to: '/cases', label: 'Cases', icon: '▤' },
   { to: '/evidence', label: 'Evidence Graph', icon: '⋔' },
   { to: '/timeline', label: 'Timeline', icon: '∿' },

@@ -81,3 +81,15 @@ async def test_research_analysis_and_experiment(client):
     assert rec["runs_analyzed"] >= 6
     assert rec["recommended_config"]["max_rounds"] in (3, 5)
     assert rec["observed"] and rec["hypothesis"] and rec["recommended_experiment"]
+
+
+@pytest.mark.asyncio
+async def test_input_limits_and_orphan_cleanup(client):
+    assert (await client.get("/v1/cases?limit=5000")).status_code == 422
+    assert (await client.get("/v1/lookup?variant=" + "A" * 500)).status_code == 422
+    assert (await client.post("/v1/research/experiment", json={"variants": ["x"] * 50})).status_code == 422
+    cid = "case_orphan"
+    api.store.create_case(cid, "NM_007294.4:c.68_69delAG", {"max_rounds": 1})
+    api.store.set_status(cid, "running")
+    assert api.store.fail_orphans() >= 1
+    assert api.store.get_case(cid)["status"] == "failed"

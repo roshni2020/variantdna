@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import sys
 import time
 import uuid
@@ -27,8 +28,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -49,6 +51,7 @@ log = logging.getLogger("variantcourt.api")
 
 settings = Settings.from_env()
 store = Store(settings.database_path)
+store.fail_orphans()  # a restart kills in-flight background runs; don't leave them "running" forever
 optimizer = build_optimizer()
 
 DEMO_VARIANTS = ["NM_007294.4:c.68_69delAG", "NM_007294.4:c.4837A>G", "NM_000000.1:c.1A>G"]
@@ -57,7 +60,7 @@ DISCLAIMER = "Research prototype - not for clinical diagnosis"
 app = FastAPI(title="VariantCourt API", version="0.2.0", description=DISCLAIMER)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",")],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -65,6 +68,8 @@ app.add_middleware(
 # ---- live event fan-out -------------------------------------------------------------
 _subscribers: dict[str, list[asyncio.Queue]] = defaultdict(list)
 _tasks: dict[str, asyncio.Task] = {}
+# Each case fans out to live evidence APIs and several LLM calls; cap how many run at once.
+_run_slots = asyncio.Semaphore(int(os.environ.get("MAX_CONCURRENT_CASES", "4")))
 
 
 def _publish(case_id: str, name: str, payload: dict[str, Any]) -> None:
@@ -85,7 +90,7 @@ class CreateCase(BaseModel):
 class ExperimentRequest(BaseModel):
     max_rounds: int | None = Field(default=None, ge=1, le=10)
     typesafe_enabled: bool = True
-    variants: list[str] | None = None
+    variants: list[str] | None = Field(default=None, max_length=10)
 
 
 # ---- helpers ----------------------------------------------------------------------------
@@ -115,6 +120,11 @@ def _run_record(case_id: str, result: CaseResult, config: dict[str, Any], tracer
 
 
 async def _execute(case_id: str) -> None:
+    async with _run_slots:
+        await _execute_inner(case_id)
+
+
+async def _execute_inner(case_id: str) -> None:
     case = store.get_case(case_id)
     if case is None:
         return
@@ -142,7 +152,8 @@ async def _execute(case_id: str) -> None:
     except Exception as e:  # noqa: BLE001
         log.exception("case %s failed", case_id)
         store.set_status(case_id, "failed", error=str(e))
-        _publish(case_id, "case_failed", {"case_id": case_id, "error": str(e)})
+        # Full traceback stays in the server log; clients get the type and message only.
+        _publish(case_id, "case_failed", {"case_id": case_id, "error": f"{type(e).__name__}: {e}"[:300]})
     finally:
         _tasks.pop(case_id, None)
 
@@ -173,7 +184,7 @@ async def health() -> dict[str, Any]:
 
 
 @app.get("/v1/lookup")
-async def lookup(variant: str) -> dict[str, Any]:
+async def lookup(variant: str = Query(min_length=3, max_length=200)) -> dict[str, Any]:
     """What is this variant and which sources confirm it. Evidence only, no verdict."""
     state = await build_runner(settings).clerk.build_state(variant.strip())
     v = state.variant
@@ -217,7 +228,7 @@ async def stats() -> dict[str, Any]:
     agent_calls = store._conn.execute("SELECT COUNT(*) FROM events WHERE name IN ('pathogenic_agent','benign_agent','typesafe_cross_exam','jury')").fetchone()[0]
     lat = [r["latency_ms"] for r in runs]
     return {
-        "cases": len(store.list_cases(1000)),
+        "cases": store._conn.execute("SELECT COUNT(*) FROM cases").fetchone()[0],
         "completed": len(runs),
         "events": events,
         "agent_calls": agent_calls,
@@ -257,7 +268,7 @@ async def create_case(body: CreateCase) -> dict[str, Any]:
 
 
 @app.get("/v1/cases")
-async def list_cases(limit: int = 50) -> list[dict[str, Any]]:
+async def list_cases(limit: int = Query(50, ge=1, le=200)) -> list[dict[str, Any]]:
     return store.list_cases(limit)
 
 
@@ -356,3 +367,9 @@ async def research_experiment(body: ExperimentRequest) -> dict[str, Any]:
         _start(cid)
         ids.append(cid)
     return {"case_ids": ids, "max_rounds": max_rounds, "typesafe_enabled": body.typesafe_enabled}
+
+
+# Single-container deploy: serve the generated Nuxt app (apps/web/.output/public) if it was built.
+_web = ROOT / "apps" / "web" / ".output" / "public"
+if _web.is_dir():
+    app.mount("/", StaticFiles(directory=_web, html=True), name="web")

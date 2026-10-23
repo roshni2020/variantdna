@@ -72,6 +72,13 @@ class Store:
             else:
                 self._conn.execute("UPDATE cases SET status=? WHERE id=?", (status, case_id))
 
+    def fail_orphans(self) -> int:
+        with self._lock, self._conn:
+            return self._conn.execute(
+                "UPDATE cases SET status='failed', error='server restarted mid-run', finished_at=? WHERE status='running'",
+                (time.time(),),
+            ).rowcount
+
     def get_case(self, case_id: str) -> dict[str, Any] | None:
         row = self._conn.execute("SELECT * FROM cases WHERE id=?", (case_id,)).fetchone()
         return self._row_to_case(row) if row else None

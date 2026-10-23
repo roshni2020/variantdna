@@ -149,6 +149,7 @@ export function useCase() {
           try {
             const c = await api.get<any>(`/v1/cases/${id}`)
             if (c.status === 'completed') loadResult(c)
+            else if (c.status === 'failed') { status.value = 'failed'; error.value = c.error; es?.close() }
           } catch {}
         }, 1000)
       }
@@ -180,6 +181,7 @@ export function useCase() {
   async function load(id: string) {
     const c = await api.get<any>(`/v1/cases/${id}`)
     if (c.status === 'completed') loadResult(c)
+    else if (c.status === 'failed') { reset(); caseId.value = id; status.value = 'failed'; error.value = c.error }
     else {
       reset()
       caseId.value = id
