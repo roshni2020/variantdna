@@ -27,12 +27,18 @@ uv run python scripts/run_case.py "NM_007294.4:c.68_69delAG"
 uv run python scripts/seed_runs.py
 
 # tests
-uv run pytest
+uv run python -m pytest
 
 # marimo research notebook (reads runs from the API)
 uv sync --extra notebook
 uv run marimo edit evals/variantcourt_research.py
 ```
+
+Open http://localhost:3000, enter `NM_007294.4:c.68_69delAG`, click **Open case**, and watch
+the sides argue live. The **Research Optimizer** tab shows ARIA's recommendation and links to
+the W&B project.
+
+Copy `.env.example` to `.env` and fill in the keys you have (see below).
 
 ### Docker (one container, API + UI on port 8000)
 
@@ -44,20 +50,19 @@ docker run -p 8000:8000 --env-file .env -v variantcourt-data:/data variantcourt
 Open http://localhost:8000. Set `CORS_ORIGINS` and `MAX_CONCURRENT_CASES` for a public deploy
 (see `.env.example`). Cases still running when the server restarts are marked failed on boot.
 
-Open http://localhost:3000, enter `NM_007294.4:c.68_69delAG`, click **Open case**, and watch
-the sides argue live. The **Research Optimizer** tab shows ARIA's recommendation and links to
-the W&B project.
-
 ## Keys (.env)
 
-| Variable | Purpose | Status |
+| Variable | Purpose | Needed for |
 | --- | --- | --- |
-| `WANDB_API_KEY`, `WANDB_ENTITY`, `WANDB_PROJECT` | Weave traces + W&B runs for ARIA | set |
-| `COREWEAVE_BASE_URL`, `COREWEAVE_API_KEY`, `COREWEAVE_MODEL` | LLM-backed counsel and jury. Default: W&B Inference (CoreWeave-hosted, `https://api.inference.wandb.ai/v1`), which reuses `WANDB_API_KEY` | set |
-| `TYPESAFE_API_KEY` (`TYPESAFE_MODEL`, default `jev-latest`) | TypeSafe Jev checks each claim against its cited evidence every round, on top of the deterministic checks | set |
+| `VARIANTCOURT_MODE` | `demo` (deterministic agents, default) or `live` (LLM agents, deterministic fallback) | always |
+| `WANDB_API_KEY`, `WANDB_ENTITY`, `WANDB_PROJECT` | Weave traces + W&B runs for ARIA. `WANDB_ENTITY` must be a team, not an organization | observability, live agents |
+| `COREWEAVE_BASE_URL`, `COREWEAVE_API_KEY`, `COREWEAVE_MODEL` | LLM-backed counsel and jury. Default: W&B Inference (CoreWeave-hosted, `https://api.inference.wandb.ai/v1`), which reuses `WANDB_API_KEY` | live agents |
+| `TYPESAFE_API_KEY` (`TYPESAFE_MODEL`, default `jev-latest`) | TypeSafe Jev checks each claim against its cited evidence every round, on top of the deterministic checks | live cross-examination |
 | `ACMG_SCORING` | `rules` (Richards 2015 combining rules, default) or `points` (Tavtigian Bayesian points, conflicting evidence nets out) | optional |
-| `FALLBACK_BASE_URL`, `FALLBACK_API_KEY`, `FALLBACK_MODEL` | optional open-model fallback | optional |
-| `VARIANTCOURT_MODE` | `demo` (deterministic agents) or `live` (LLM agents, deterministic fallback) | live |
+| `EVIDENCE_MODE` | `live` (public databases, cached) or `fixtures` (offline demo bundle) | optional |
+| `NCBI_API_KEY` | raises the ClinVar rate limit from 3 to 10 requests/s | optional, bulk runs |
+| `FALLBACK_BASE_URL`, `FALLBACK_API_KEY`, `FALLBACK_MODEL` | open-model fallback | optional |
+| `CORS_ORIGINS`, `MAX_CONCURRENT_CASES`, `VARIANTCOURT_DB` | allowed origins, parallel case cap (default 4), SQLite path | deployment |
 
 With no model keys the app runs fully in DEMO MODE with deterministic agents. Every live
 agent falls back to its deterministic twin if its endpoint fails, so the demo never dies.
@@ -78,7 +83,7 @@ packages/variantcourt/
   factory.py     builds a runner from settings (mock vs live)
 services/api/    FastAPI: cases, SSE stream, research endpoints, SQLite store
 apps/web/        Nuxt 4 courtroom UI + Research Optimizer
-scripts/         run_case.py, seed_runs.py
+scripts/         run_case.py, seed_runs.py, bulk_test.py (ClinVar benchmark), typesafe_verify.py (audit)
 tests/
 ```
 
@@ -110,13 +115,13 @@ Accepted input formats: transcript HGVS (`NM_007294.4:c.68_69delAG`), ClinVar st
 
 Evidence comes live from Ensembl VEP, gnomAD, ClinVar and Europe PMC (`EVIDENCE_MODE=live`, cached under `.cache/evidence/`, fixture fallback if the anchor source fails). Set `EVIDENCE_MODE=fixtures` for the offline demo bundle.
 
-Rule engine covers PVS1, PS1, PS3, PM2, BA1, BS1, BS3, BP4, plus PP5/BP6 for 2+ star ClinVar classifications (a labeled research shortcut).
+Rule engine covers PVS1 (downgraded to Moderate in the last exon, where truncations escape nonsense-mediated decay), PS1, PS3, PM2, BA1, BS1, BS3, BP4, BP7 (synonymous outside splice regions), plus PP5/BP6 for 2+ star ClinVar classifications (a labeled research shortcut). Population frequency is looked up in gnomAD by exact allele; a variant gnomAD has never seen counts as absent for PM2.
 
 ## Sponsor integrations
 
 - **Weave**: every agent call, cross-examination, jury delta, round metric and verdict is an op under one trace per case.
 - **ARIA**: each case is a W&B run (config: max_rounds, typesafe_enabled, provider; metrics per round). Open the project, click *Ask ARIA*. The Research Optimizer tab runs the same comparison locally and can launch the recommended experiment.
-- **TypeSafe AI**: `agents/cross_examiner.py` holds the interface, a deterministic implementation of the checks, and an API adapter that merges real TypeSafe findings with them.
+- **TypeSafe AI**: `agents/cross_examiner.py` runs deterministic checks every round and asks TypeSafe's Jev model (`/v1/systemone`, one Choice per claim) whether each claim's cited evidence supports, contradicts, or says nothing about it. Confident contradictions reject the claim; if the API is down, the deterministic checks stand alone. `scripts/typesafe_verify.py` audits finished cases the same way.
 - **CoreWeave**: `providers/openai_compat.py` targets CoreWeave's OpenAI-compatible inference gateway with fallback.
 - **marimo**: `evals/variantcourt_research.py` is a reactive notebook that plots whether rejections and conflicts fall across rounds, latency vs open conflicts per configuration, and one case's round-by-round trajectory.
 
