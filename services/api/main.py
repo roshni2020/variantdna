@@ -53,6 +53,9 @@ settings = Settings.from_env()
 store = Store(settings.database_path)
 store.fail_orphans()  # a restart kills in-flight background runs; don't leave them "running" forever
 optimizer = build_optimizer()
+# Weave logs in once per process with blocking network calls; do it before serving, not on
+# the event loop inside the first request (that stalled the loop and dropped connections).
+build_runner(settings)
 
 DEMO_VARIANTS = ["NM_007294.4:c.68_69delAG", "NM_007294.4:c.4837A>G", "NM_000000.1:c.1A>G"]
 DISCLAIMER = "Research prototype - not for clinical diagnosis"
