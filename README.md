@@ -118,3 +118,13 @@ Rule engine covers PVS1, PS1, PS3, PM2, BA1, BS1, BS3, BP4, plus PP5/BP6 for 2+ 
 - **TypeSafe AI**: `agents/cross_examiner.py` holds the interface, a deterministic implementation of the checks, and an API adapter that merges real TypeSafe findings with them.
 - **CoreWeave**: `providers/openai_compat.py` targets CoreWeave's OpenAI-compatible inference gateway with fallback.
 - **marimo**: `evals/variantcourt_research.py` is a reactive notebook that plots whether rejections and conflicts fall across rounds, latency vs open conflicts per configuration, and one case's round-by-round trajectory.
+
+## Bulk test against ClinVar
+
+```
+uv run python scripts/bulk_test.py --n 80 --api http://127.0.0.1:8000
+```
+
+Pulls ClinVar variants with 2+ review stars (half pathogenic, half benign) across eight cancer
+genes, runs them all, and reports throughput, latency, failures, and agreement with ClinVar.
+Per-case rows go to `bulk_results.csv`.

@@ -28,3 +28,20 @@ def test_reducer_reopens_resolved_conflict_when_raised_again():
     new, result = reduce_state(state, JuryDelta(conflicts_to_add=[raised]), CrossExamResult(contradictions=[raised]), [], [])
     assert result.conflicts_added == ["cf"]
     assert new.unresolved_conflicts("high")
+
+
+def test_gnomad_absence_counts_as_rare(monkeypatch):
+    """A variant gnomAD has never seen (no rsID, exact-allele lookup misses) must still reach PM2."""
+    import httpx
+
+    from variantcourt.evidence import sources
+
+    class R:
+        def raise_for_status(self): ...
+        def json(self): return {"errors": [{"message": "Variant not found"}], "data": {"variant": None}}
+
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: R())
+    items = sources.fetch_gnomad("NM_007294.4", variant_id="17-43093830-ATT-A")
+    assert items[0].metadata["allele_frequency"] == 0.0
+    # rsID misses are not proof of absence (gnomAD may just lack the rsID mapping).
+    assert sources.fetch_gnomad("NM_007294.4", rsid="rs1") == []

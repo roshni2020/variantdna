@@ -142,9 +142,10 @@ class LiveEvidenceClerk:
         protein = cons.metadata.get("protein_change") if cons else None
 
         pop_items: list[EvidenceItem] = []
-        if variant.rsid:
+        vcf_id = rec.get("vcf_string")
+        if vcf_id or variant.rsid:
             try:
-                pop_items = src.fetch_gnomad(variant.rsid, variant.transcript)
+                pop_items = src.fetch_gnomad(variant.transcript, variant_id=vcf_id, rsid=variant.rsid)
                 if pop_items:
                     loaded.append("gnomAD")
             except Exception as e:  # noqa: BLE001

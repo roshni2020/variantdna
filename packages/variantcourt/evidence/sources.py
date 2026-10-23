@@ -8,7 +8,9 @@ pathogenic vs benign; direction is a literal reading of what the source asserts.
 from __future__ import annotations
 
 import logging
+import os
 import re
+import time
 from typing import Any
 
 import httpx
@@ -20,6 +22,19 @@ log = logging.getLogger(__name__)
 TIMEOUT = 25.0
 UA = {"User-Agent": "VariantCourt/0.2 (research prototype)"}
 EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+
+
+def _eutils(endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
+    """NCBI E-utilities GET with backoff on 429. NCBI allows 3 req/s, or 10 with NCBI_API_KEY."""
+    if key := os.environ.get("NCBI_API_KEY", "").strip():
+        params = {**params, "api_key": key}
+    for attempt in range(4):
+        r = httpx.get(f"{EUTILS}/{endpoint}", params=params, headers=UA, timeout=TIMEOUT)
+        if r.status_code != 429 or attempt == 3:
+            break
+        time.sleep(1 + attempt)
+    r.raise_for_status()
+    return r.json()
 
 # Genes where loss of function is an established disease mechanism (ClinGen dosage
 # haploinsufficiency = 3, curated subset). Research shortcut, not a clinical resource.
@@ -43,24 +58,10 @@ def resolve_protein_name(gene: str, protein_change: str) -> tuple[str, str] | No
     does the same job but times out regularly on the public endpoint.
     """
     term = f'{gene}[gene] AND "{protein_change}"[variant name]'
-    r = httpx.get(
-        f"{EUTILS}/esearch.fcgi",
-        params={"db": "clinvar", "term": term, "retmode": "json", "retmax": 5},
-        headers=UA,
-        timeout=TIMEOUT,
-    )
-    r.raise_for_status()
-    ids = (r.json().get("esearchresult") or {}).get("idlist", [])
+    ids = (_eutils("esearch.fcgi", {"db": "clinvar", "term": term, "retmode": "json", "retmax": 5}).get("esearchresult") or {}).get("idlist", [])
     if not ids:
         return None
-    r = httpx.get(
-        f"{EUTILS}/esummary.fcgi",
-        params={"db": "clinvar", "id": ",".join(ids), "retmode": "json"},
-        headers=UA,
-        timeout=TIMEOUT,
-    )
-    r.raise_for_status()
-    result = r.json().get("result", {})
+    result = _eutils("esummary.fcgi", {"db": "clinvar", "id": ",".join(ids), "retmode": "json"}).get("result", {})
     for uid in result.get("uids", []):
         m = _CLINVAR_TITLE.match(result[uid].get("title", ""))
         if m and m.group(2).upper() == gene.upper():
@@ -82,7 +83,7 @@ def fetch_vep(variant: NormalizedVariant) -> dict[str, Any]:
     path = "id" if term.startswith("rs") else "hgvs"
     r = httpx.get(
         f"https://rest.ensembl.org/vep/human/{path}/{term}",
-        params={"content-type": "application/json", "refseq": 1, "hgvs": 1, "sift": "b", "polyphen": "b"},
+        params={"content-type": "application/json", "refseq": 1, "hgvs": 1, "sift": "b", "polyphen": "b", "vcf_string": 1},
         headers={**UA, "Accept": "application/json"},
         timeout=TIMEOUT,
     )
@@ -239,8 +240,8 @@ def _freq_direction(af: float) -> str:
 
 # ---------------------------------------------------------------- gnomAD
 GNOMAD_QUERY = """
-query($rsid: String!, $dataset: DatasetId!) {
-  variant(rsid: $rsid, dataset: $dataset) {
+query($rsid: String, $variantId: String, $dataset: DatasetId!) {
+  variant(rsid: $rsid, variantId: $variantId, dataset: $dataset) {
     variant_id rsids
     exome { ac an af homozygote_count populations { id ac an } }
     genome { ac an af homozygote_count populations { id ac an } }
@@ -249,15 +250,35 @@ query($rsid: String!, $dataset: DatasetId!) {
 """
 
 
-def fetch_gnomad(rsid: str, transcript: str | None) -> list[EvidenceItem]:
+def fetch_gnomad(transcript: str | None, variant_id: str | None = None, rsid: str | None = None) -> list[EvidenceItem]:
+    """Look up by exact allele (VEP vcf_string, e.g. 17-43093830-ATT-A) when known, else by rsID."""
+    variables = {"variantId": variant_id} if variant_id else {"rsid": rsid}
     r = httpx.post(
         "https://gnomad.broadinstitute.org/api",
-        json={"query": GNOMAD_QUERY, "variables": {"rsid": rsid, "dataset": "gnomad_r4"}},
+        json={"query": GNOMAD_QUERY, "variables": {**variables, "dataset": "gnomad_r4"}},
         headers={**UA, "Content-Type": "application/json"},
         timeout=TIMEOUT,
     )
     r.raise_for_status()
-    v = (r.json().get("data") or {}).get("variant")
+    body = r.json()
+    v = (body.get("data") or {}).get("variant")
+    if not v and variant_id and any("not found" in (e.get("message") or "").lower() for e in body.get("errors") or []):
+        # Absence is evidence (PM2). ponytail: assumes the site is covered in gnomAD;
+        # check gnomAD's coverage API before trusting absence in low-coverage regions.
+        return [
+            EvidenceItem(
+                id="ev_gnomad_freq",
+                source="gnomAD",
+                evidence_type="population_frequency",
+                summary=f"Not observed in gnomAD v4 ({variant_id}); allele frequency treated as 0.",
+                direction="pathogenic",
+                confidence=0.7,
+                source_url=f"https://gnomad.broadinstitute.org/variant/{variant_id}?dataset=gnomad_r4",
+                source_identifier=variant_id,
+                transcript=transcript,
+                metadata={"allele_frequency": 0.0, "allele_count": 0, "absent": True, "dataset": "gnomad_r4"},
+            )
+        ]
     if not v:
         return []
     ex, ge = v.get("exome") or {}, v.get("genome") or {}
@@ -337,14 +358,10 @@ def fetch_clinvar(variant: NormalizedVariant, hgvsc: str | None) -> list[Evidenc
     term = " OR ".join(f'"{t}"' for t in terms) if terms else variant.input
     if variant.gene:
         term = f"({term}) AND {variant.gene}[gene]"
-    r = httpx.get(f"{EUTILS}/esearch.fcgi", params={"db": "clinvar", "term": term, "retmode": "json", "retmax": 20}, headers=UA, timeout=TIMEOUT)
-    r.raise_for_status()
-    ids = r.json().get("esearchresult", {}).get("idlist", [])
+    ids = _eutils("esearch.fcgi", {"db": "clinvar", "term": term, "retmode": "json", "retmax": 20}).get("esearchresult", {}).get("idlist", [])
     if not ids:
         return []
-    r = httpx.get(f"{EUTILS}/esummary.fcgi", params={"db": "clinvar", "id": ",".join(ids), "retmode": "json"}, headers=UA, timeout=TIMEOUT)
-    r.raise_for_status()
-    result = r.json().get("result", {})
+    result = _eutils("esummary.fcgi", {"db": "clinvar", "id": ",".join(ids), "retmode": "json"}).get("result", {})
     want = (hgvsc or f"{variant.transcript}:{variant.hgvs}" or "").split(":")[-1]
     tx_base = (variant.transcript or "").split(".")[0]
     items: list[EvidenceItem] = []

@@ -12,3 +12,5 @@ node_modules/
 wandb/
 .cache/
 .agents/
+apps/web/dist/
+bulk_results.csv
